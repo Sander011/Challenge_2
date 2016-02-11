@@ -5,11 +5,16 @@ import client.Utils;
 import java.util.*;
 
 public class AwesomeDataTransferProtocol extends IRDTProtocol {
-
     // change the following as you wish:
     static final int HEADERSIZE = 2;   // number of header bytes in each packet
     static final int DATASIZE = 128;   // max. number of user data bytes in each packet
-    private ArrayList<Integer[]> packets;
+    private static ArrayList<Integer[]> packets;
+
+    private static Timer timer;
+
+    private static Map<Integer, Integer[]> received;
+    private static ArrayList<Integer> missing;
+    private static int amountOfPackets = 0;
 
 
     private void send(int packetNo) {
@@ -90,95 +95,119 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
 
     @Override
     public void TimeoutElapsed(Object tag) {
-        int z = (Integer) tag;
-        // handle expiration of the timeout:
-        System.out.println("Timer expired with tag=" + z);
+        request(missing);
     }
 
-    private void request(int packetNo) {
-        System.out.println("Requesting packet: " + packetNo);
-        Integer[] packet = {packetNo};
+    private void request(ArrayList<Integer> missing) {
+        System.out.println("Requesting: " + missing.size() + " packets.");
+        missing.add(0, missing.size());
+        Integer[] packet = missing.toArray(new Integer[missing.size()]);
         getNetworkLayer().sendPacket(packet);
+    }
+
+    private void parsePacket(Integer[] packet) {
+        try {
+            timer.cancel();
+        } catch (IllegalStateException ignored) {}
+        int header = packet[0];
+        System.out.println("Parsing packet, length="+packet.length+"  first byte="+header);
+        if (amountOfPackets == 0) {
+            System.out.println(header);
+            setAmount(packet[1]);
+        }
+        received.put(header, Arrays.copyOfRange(packet, HEADERSIZE, packet.length));
+        missing.remove(new Integer(header));
+    }
+
+    private void setAmount(int amount) {
+        amountOfPackets = amount;
+
+        for (int i = 0; i < amountOfPackets; i++) {
+            missing.add(i);
+        }
+    }
+
+    private boolean checkCorrectness () {
+        if (amountOfPackets == 0) {
+            return false;
+        }
+        for (int i = 0; i < amountOfPackets; i++) {
+            if (!received.containsKey(i)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private class Reader extends Thread {
+        private final AwesomeDataTransferProtocol p;
+
+        public Reader(AwesomeDataTransferProtocol p) {
+            this.p = p;
+        }
+
+        @Override
+        public void run() {
+            while (true) {
+                Integer[] packet = getNetworkLayer().receivePacket();
+                if (packet != null) {
+                    System.out.println("Received packet, length="+packet.length+"  first byte="+packet[0]);
+                    p.parsePacket(packet);
+                } else {
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException ignored) {}
+                }
+            }
+        }
+    }
+
+    private class Requester extends Thread {
+        @Override
+        public void run() {
+            try {
+                Thread.sleep(120000);
+            } catch (InterruptedException ignored) {}
+            request(missing);
+            while (true) {
+                try {
+                    int size = missing.size();
+                    System.out.println(size);
+                    System.out.println(amountOfPackets);
+                    int time = 10000 + ((int)Math.floor(((double)size / (double)amountOfPackets) * 80000));
+                    System.out.println(time);
+                    Thread.sleep(time);
+                } catch (InterruptedException ignored) {
+                }
+
+                request(missing);
+            }
+        }
     }
 
     @Override
     public void receiver() {
         System.out.println("Receiving...");
 
+        this.timer = new Timer();
+
+        this.received = new HashMap<>();
+        this.missing = new ArrayList<>();
+
+        new Reader(this).start();
+        new Requester().start();
+
         // create the array that will contain the file contents
         // note: we don't know yet how large the file will be, so the easiest (but not most efficient)
         //   is to reallocate the array every time we find out there's more data
-        Integer[] fileContents = new Integer[0];
 
-        Map<Integer, Integer[]> received = new HashMap<>();
-
-        // loop until we are done receiving the file
-        boolean stop = false;
-        while (!stop) {
-            // try to receive a packet from the network layer
-            Integer[] packet = getNetworkLayer().receivePacket();
-
-            // if we indeed received a packet
-            if (packet != null) {
-
-                // tell the user
-                System.out.println("Received packet, length="+packet.length+"  first byte="+packet[0] );
-
-
-                int header = packet[0];
-
-                Integer[] content = Arrays.copyOfRange(packet, HEADERSIZE, packet.length);
-
-                received.put(header, content);
-
-                // and let's just hope the file is now complete
-                if (header == 0) {
-                    stop = true;
-                }
-
-            }else{
-                // wait ~10ms (or however long the OS makes us wait) before trying again
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    stop = true;
-                }
-            }
+        while (amountOfPackets == 0 || !checkCorrectness()) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ignored) {}
         }
 
-        System.out.println("Received first try");
-        String m = "";
-        for (Integer integer : received.keySet()) {
-            m += integer + " ";
-        }
-        System.out.println(m);
-
-        boolean correct = false;
-        while (!correct) {
-            ArrayList<Integer> keys = new ArrayList<>(received.keySet());
-            Collections.sort(keys);
-            correct = true;
-
-            for (int i = 0; i < keys.size(); i++) {
-                if (!keys.contains(i)) {
-                    correct = false;
-                    request(i);
-                    boolean receivedPacket = false;
-                    while (!receivedPacket) {
-                        Integer[] packet = getNetworkLayer().receivePacket();
-                        if (packet != null) {
-                            receivedPacket = true;
-                            received.put(packet[0], Arrays.copyOfRange(packet, HEADERSIZE, packet.length));
-                        } else {
-                            try {
-                                Thread.sleep(10);
-                            } catch (InterruptedException ignored) {
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         ArrayList<Integer> keys = new ArrayList<>(received.keySet());
         Collections.sort(keys);
@@ -187,7 +216,12 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
             keys.add(keys.remove(0));
         }
 
+        Integer[] fileContents = new Integer[0];
+
+        String n = "end";
+
         for (Integer key : keys) {
+            n += " " + key;
             Integer[] packet = received.get(key);
             int oldlength=fileContents.length;
             int datalen= packet.length;
@@ -195,11 +229,7 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
             System.arraycopy(packet, 0, fileContents, oldlength, datalen);
         }
 
-        m = "";
-        for (Integer integer : received.keySet()) {
-            m += integer + " ";
-        }
-        System.out.println(m);
+        System.out.println(n);
 
         // write to the output file
         Utils.setFileContents(fileContents, getFileID());
