@@ -8,7 +8,7 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
 
     // change the following as you wish:
     static final int HEADERSIZE = 2;   // number of header bytes in each packet
-    static final int DATASIZE = 128;   // max. number of user data bytes in each packet
+    static final int DATASIZE = 210;   // max. number of user data bytes in each packet
     private ArrayList<Integer[]> packets;
 
 
@@ -21,6 +21,9 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
             getNetworkLayer().sendPacket(packets.get(packets.size()-1));
         }
 
+        try {
+            Thread.sleep(500);
+        } catch( InterruptedException ignore) {}
     }
 
     @Override
@@ -31,8 +34,15 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
                 while (true) {
                     Integer[] packet = getNetworkLayer().receivePacket();
                     if (packet != null) {
-                        System.out.println("Missing acknowledgement for packet: " + packet[0]);
-                        send(packet[0]);
+                        int count = 0;
+                        for(Integer i : packet) {
+                            if(count != 0) {
+                                send(i);
+                            } else {
+                                count++;
+                                System.out.println("Missing acknowledgements for " + i + " packets");
+                            }
+                        }
                     } else {
                         try {
                             Thread.sleep(10);
@@ -46,8 +56,6 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
 
         // read from the input file
         Integer[] fileContents = Utils.getFileContents(getFileID());
-
-        Integer[] newFile = new Integer[fileContents.length];
 
         // keep track of where we are in the data
         int filePointer = 0;
@@ -65,12 +73,15 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
             } else {
                 pkt[0] = 0;
             }
+            pkt[1] = (int)Math.ceil((double)fileContents.length / DATASIZE);
             System.arraycopy(fileContents, filePointer, pkt, HEADERSIZE, datalen);
             packets.add(pkt);
 
             filePointer += datalen;
             headerCount++;
         }
+
+        System.out.println("Send " + packets.get(1)[1] + " packets");
 
         for (int i = 1; i < packets.size(); i++) {
             send(i);
