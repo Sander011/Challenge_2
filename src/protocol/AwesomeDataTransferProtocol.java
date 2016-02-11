@@ -2,13 +2,12 @@ package protocol;
 
 import client.Utils;
 
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.*;
 
 public class AwesomeDataTransferProtocol extends IRDTProtocol {
 
     // change the following as you wish:
-    static final int HEADERSIZE = 1;   // number of header bytes in each packet
+    static final int HEADERSIZE = 2;   // number of header bytes in each packet
     static final int DATASIZE = 128;   // max. number of user data bytes in each packet
     private ArrayList<Integer[]> packets;
 
@@ -89,6 +88,12 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
         System.out.println("Timer expired with tag=" + z);
     }
 
+    private void request(int packetNo) {
+        System.out.println("Requesting packet: " + packetNo);
+        Integer[] packet = {packetNo};
+        getNetworkLayer().sendPacket(packet);
+    }
+
     @Override
     public void receiver() {
         System.out.println("Receiving...");
@@ -97,8 +102,8 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
         // note: we don't know yet how large the file will be, so the easiest (but not most efficient)
         //   is to reallocate the array every time we find out there's more data
         Integer[] fileContents = new Integer[0];
-        Integer[] bla = {3};
-        getNetworkLayer().sendPacket(bla);
+
+        Map<Integer, Integer[]> received = new HashMap<>();
 
         // loop until we are done receiving the file
         boolean stop = false;
@@ -112,14 +117,15 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
                 // tell the user
                 System.out.println("Received packet, length="+packet.length+"  first byte="+packet[0] );
 
-                // append the packet's data part (excluding the header) to the fileContents array, first making it larger
-                int oldlength=fileContents.length;
-                int datalen= packet.length - HEADERSIZE;
-                fileContents = Arrays.copyOf(fileContents, oldlength+datalen);
-                System.arraycopy(packet, HEADERSIZE, fileContents, oldlength, datalen);
+
+                int header = packet[0];
+
+                Integer[] content = Arrays.copyOfRange(packet, HEADERSIZE, packet.length);
+
+                received.put(header, content);
 
                 // and let's just hope the file is now complete
-                if (packet[0] == 0) {
+                if (header == 0) {
                     stop = true;
                 }
 
@@ -133,7 +139,60 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
             }
         }
 
+        System.out.println("Received first try");
+        String m = "";
+        for (Integer integer : received.keySet()) {
+            m += integer + " ";
+        }
+        System.out.println(m);
 
+        boolean correct = false;
+        while (!correct) {
+            ArrayList<Integer> keys = new ArrayList<>(received.keySet());
+            Collections.sort(keys);
+            correct = true;
+
+            for (int i = 0; i < keys.size(); i++) {
+                if (!keys.contains(i)) {
+                    correct = false;
+                    request(i);
+                    boolean receivedPacket = false;
+                    while (!receivedPacket) {
+                        Integer[] packet = getNetworkLayer().receivePacket();
+                        if (packet != null) {
+                            receivedPacket = true;
+                            received.put(packet[0], Arrays.copyOfRange(packet, HEADERSIZE, packet.length));
+                        } else {
+                            try {
+                                Thread.sleep(10);
+                            } catch (InterruptedException ignored) {
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ArrayList<Integer> keys = new ArrayList<>(received.keySet());
+        Collections.sort(keys);
+
+        if (keys.get(0) == 0) {
+            keys.add(keys.remove(0));
+        }
+
+        for (Integer key : keys) {
+            Integer[] packet = received.get(key);
+            int oldlength=fileContents.length;
+            int datalen= packet.length;
+            fileContents = Arrays.copyOf(fileContents, oldlength+datalen);
+            System.arraycopy(packet, 0, fileContents, oldlength, datalen);
+        }
+
+        m = "";
+        for (Integer integer : received.keySet()) {
+            m += integer + " ";
+        }
+        System.out.println(m);
 
         // write to the output file
         Utils.setFileContents(fileContents, getFileID());
