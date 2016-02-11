@@ -13,9 +13,15 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
     private ArrayList<Integer[]> packets;
 
 
-    public void send(int packetNo) {
-        getNetworkLayer().sendPacket(packets.get(packetNo));
-        System.out.println("Sent one packet with header=" + packets.get(packetNo)[0]);
+    private void send(int packetNo) {
+        if(packetNo != 0) {
+            System.out.println("Sent one packet with header=" + (packets.get(packetNo)[0]));
+            getNetworkLayer().sendPacket(packets.get(packetNo));
+        } else {
+            System.out.println("Sent one packet with header=" + 0);
+            getNetworkLayer().sendPacket(packets.get(packets.size()-1));
+        }
+
     }
 
     @Override
@@ -26,8 +32,8 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
                 while (true) {
                     Integer[] packet = getNetworkLayer().receivePacket();
                     if (packet != null) {
-                        System.out.println("Missing acknowledgement");
-                        send(packet[0] - 1);
+                        System.out.println("Missing acknowledgement for packet: " + packet[0]);
+                        send(packet[0]);
                     } else {
                         try {
                             Thread.sleep(10);
@@ -50,6 +56,7 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
         int headerCount = 1;
 
         packets = new ArrayList<>();
+        packets.add(new Integer[0]);
 
         while(filePointer != fileContents.length) {
             int datalen = Math.min(DATASIZE, fileContents.length - filePointer);
@@ -61,12 +68,12 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
             }
             System.arraycopy(fileContents, filePointer, pkt, HEADERSIZE, datalen);
             packets.add(pkt);
-            //getNetworkLayer().sendPacket(pkt);
 
             filePointer += datalen;
             headerCount++;
         }
-        for (int i = 0; i < packets.size(); i++) {
+
+        for (int i = 1; i < packets.size(); i++) {
             send(i);
         }
 
