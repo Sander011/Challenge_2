@@ -2,6 +2,7 @@ package protocol;
 
 import client.Utils;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 
 public class AwesomeDataTransferProtocol extends IRDTProtocol {
@@ -9,33 +10,65 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
     // change the following as you wish:
     static final int HEADERSIZE = 1;   // number of header bytes in each packet
     static final int DATASIZE = 128;   // max. number of user data bytes in each packet
+    private ArrayList<Integer[]> packets;
+
+
+    public void send(int packetNo) {
+        getNetworkLayer().sendPacket(packets.get(packetNo));
+        System.out.println("Sent one packet with header=" + packets.get(packetNo)[0]);
+    }
 
     @Override
     public void sender() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (true) {
+                    Integer[] packet = getNetworkLayer().receivePacket();
+                    if (packet != null) {
+                        System.out.println("Missing acknowledgement");
+                        send(packet[0] - 1);
+                    } else {
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException ignored) {}
+                    }
+                }
+            }
+        }).start();
+
         System.out.println("Sending...");
 
         // read from the input file
         Integer[] fileContents = Utils.getFileContents(getFileID());
 
+        Integer[] newFile = new Integer[fileContents.length];
+
         // keep track of where we are in the data
         int filePointer = 0;
 
-        int headerCount = 0;
+        int headerCount = 1;
+
+        packets = new ArrayList<>();
 
         while(filePointer != fileContents.length) {
             int datalen = Math.min(DATASIZE, fileContents.length - filePointer);
             Integer[] pkt = new Integer[HEADERSIZE + datalen];
-            pkt[0] = headerCount;
+            if(filePointer + datalen < fileContents.length) {
+                pkt[0] = headerCount;
+            } else {
+                pkt[0] = 0;
+            }
             System.arraycopy(fileContents, filePointer, pkt, HEADERSIZE, datalen);
-            getNetworkLayer().sendPacket(pkt);
-            System.out.println("Sent one packet with header=" + pkt[0]);
+            packets.add(pkt);
+            //getNetworkLayer().sendPacket(pkt);
+
             filePointer += datalen;
             headerCount++;
         }
-
-        //Utils.Timeout.SetTimeout(1000, this, 28);
-
-
+        for (int i = 0; i < packets.size(); i++) {
+            send(i);
+        }
 
         // and loop and sleep; you may use this loop to check for incoming acks...
         boolean stop = false;
