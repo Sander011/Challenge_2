@@ -64,40 +64,43 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
         // note: we don't know yet how large the file will be, so the easiest (but not most efficient)
         //   is to reallocate the array every time we find out there's more data
         Integer[] fileContents = new Integer[0];
+        Integer[] bla = {3};
+        getNetworkLayer().sendPacket(bla);
 
         // loop until we are done receiving the file
-        Integer[] packet = getNetworkLayer().receivePacket();
-        while (packet == null) {
-            try {
-                System.out.println("Sleeping...");
-                Thread.sleep(10);
-                packet = getNetworkLayer().receivePacket();
-            } catch (InterruptedException ignored) {
+        boolean stop = false;
+        while (!stop) {
+            // try to receive a packet from the network layer
+            Integer[] packet = getNetworkLayer().receivePacket();
 
-            }
-        }
-        while (packet != null) {
-            // tell the user
-            System.out.println("Received packet, length="+packet.length+"  first byte="+packet[0] );
+            // if we indeed received a packet
+            if (packet != null) {
 
-            // append the packet's data part (excluding the header) to the fileContents array, first making it larger
-            int oldlength=fileContents.length;
-            int datalen= packet.length - HEADERSIZE;
-            fileContents = Arrays.copyOf(fileContents, oldlength+datalen);
-            System.arraycopy(packet, HEADERSIZE, fileContents, oldlength, datalen);
+                // tell the user
+                System.out.println("Received packet, length="+packet.length+"  first byte="+packet[0] );
 
-            // and let's just hope the file is now complete
-            //stop=true;
+                // append the packet's data part (excluding the header) to the fileContents array, first making it larger
+                int oldlength=fileContents.length;
+                int datalen= packet.length - HEADERSIZE;
+                fileContents = Arrays.copyOf(fileContents, oldlength+datalen);
+                System.arraycopy(packet, HEADERSIZE, fileContents, oldlength, datalen);
 
-            packet = getNetworkLayer().receivePacket();
-            if (packet == null) {
+                // and let's just hope the file is now complete
+                if (packet[0] == 0) {
+                    stop = true;
+                }
+
+            }else{
+                // wait ~10ms (or however long the OS makes us wait) before trying again
                 try {
                     Thread.sleep(10);
-                    packet = getNetworkLayer().receivePacket();
-                } catch (InterruptedException ignored) {
+                } catch (InterruptedException e) {
+                    stop = true;
                 }
             }
         }
+
+
 
         // write to the output file
         Utils.setFileContents(fileContents, getFileID());
