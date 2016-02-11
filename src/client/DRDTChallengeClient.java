@@ -395,7 +395,11 @@ public class DRDTChallengeClient implements Runnable {
 			try {
 				this.inputPacketBufferLock.lock();
 				if (this.inputPacketBuffer.size() > 0) {
-					return inputPacketBuffer.remove(0);
+					Integer[] lola = inputPacketBuffer.remove(0);
+                    for (Integer integer : lola) {
+                        System.out.println(integer);
+                    }
+                    return lola;
 				}
 			} finally {
 				this.inputPacketBufferLock.unlock();

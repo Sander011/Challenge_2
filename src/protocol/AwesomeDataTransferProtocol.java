@@ -66,33 +66,35 @@ public class AwesomeDataTransferProtocol extends IRDTProtocol {
         Integer[] fileContents = new Integer[0];
 
         // loop until we are done receiving the file
-        boolean stop = false;
-        while (!stop) {
+        Integer[] packet = getNetworkLayer().receivePacket();
+        while (packet == null) {
+            try {
+                System.out.println("Sleeping...");
+                Thread.sleep(10);
+                packet = getNetworkLayer().receivePacket();
+            } catch (InterruptedException ignored) {
 
-            // try to receive a packet from the network layer
-            Integer[] packet = getNetworkLayer().receivePacket();
+            }
+        }
+        while (packet != null) {
+            // tell the user
+            System.out.println("Received packet, length="+packet.length+"  first byte="+packet[0] );
 
-            // if we indeed received a packet
-            if (packet != null) {
+            // append the packet's data part (excluding the header) to the fileContents array, first making it larger
+            int oldlength=fileContents.length;
+            int datalen= packet.length - HEADERSIZE;
+            fileContents = Arrays.copyOf(fileContents, oldlength+datalen);
+            System.arraycopy(packet, HEADERSIZE, fileContents, oldlength, datalen);
 
-                // tell the user
-                System.out.println("Received packet, length="+packet.length+"  first byte="+packet[0] );
+            // and let's just hope the file is now complete
+            //stop=true;
 
-                // append the packet's data part (excluding the header) to the fileContents array, first making it larger
-                int oldlength=fileContents.length;
-                int datalen= packet.length - HEADERSIZE;
-                fileContents = Arrays.copyOf(fileContents, oldlength+datalen);
-                System.arraycopy(packet, HEADERSIZE, fileContents, oldlength, datalen);
-
-                // and let's just hope the file is now complete
-                stop=true;
-
-            }else{
-                // wait ~10ms (or however long the OS makes us wait) before trying again
+            packet = getNetworkLayer().receivePacket();
+            if (packet == null) {
                 try {
                     Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    stop = true;
+                    packet = getNetworkLayer().receivePacket();
+                } catch (InterruptedException ignored) {
                 }
             }
         }
